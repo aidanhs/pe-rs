@@ -17,7 +17,7 @@ extern crate lazy_static;
 extern crate bitflags;
 
 pub mod types;
-mod utility;
+pub mod utility;
 
 use std::mem::{transmute,size_of};
 
@@ -143,7 +143,7 @@ impl<'data> Pe<'data> {
 		};
 		let pe_header=try!(data.ref_at(pe_header_fp));
 
-		if pe_header.size_of_optional_header<2 {
+		if pe_header.coff_header.size_of_optional_header<2 {
 			return Err(Error::NotPe);
 		}
 		let pe_oh_fp=pe_header_fp+(size_of::<PeHeader>() as u32);
@@ -154,15 +154,15 @@ impl<'data> Pe<'data> {
 		let pe_oh=match sig {
 			OH_SIGNATURE_PE32 => {
 				let s=size_of::<PeOptionalHeader32>() as u16;
-				if pe_header.size_of_optional_header<s { return Err(Error::NotPe) }
-				dd_size=pe_header.size_of_optional_header-s;
+				if pe_header.coff_header.size_of_optional_header<s { return Err(Error::NotPe) }
+				dd_size=pe_header.coff_header.size_of_optional_header-s;
 				pe_dd_fp=pe_oh_fp.offset(s as u32);
 				PeOptionalHeader::Pe32(try!(data.ref_at(pe_oh_fp.offset(0))))
 			},
 			OH_SIGNATURE_PE32P => {
 				let s=size_of::<PeOptionalHeader64>() as u16;
-				if pe_header.size_of_optional_header<s { return Err(Error::NotPe) }
-				dd_size=pe_header.size_of_optional_header-s;
+				if pe_header.coff_header.size_of_optional_header<s { return Err(Error::NotPe) }
+				dd_size=pe_header.coff_header.size_of_optional_header-s;
 				pe_dd_fp=pe_oh_fp.offset(s as u32);
 				PeOptionalHeader::Pe32Plus(try!(data.ref_at(pe_oh_fp.offset(0))))
 			},
@@ -176,7 +176,7 @@ impl<'data> Pe<'data> {
 		let pe_dd=try!(data.ref_slice_at(pe_dd_fp,n));
 
 		let pe_sec_fp=pe_dd_fp.offset(n*(size_of::<DataDirectory<u32>>() as u32));
-		let pe_sec=try!(data.ref_slice_at(pe_sec_fp,pe_header.number_of_sections as u32));
+		let pe_sec=try!(data.ref_slice_at(pe_sec_fp,pe_header.coff_header.number_of_sections as u32));
 
 		Ok(Pe{data:data,h:pe_header,oh:pe_oh,directories:pe_dd,sections:pe_sec})
 	}

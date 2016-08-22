@@ -205,6 +205,13 @@ unsafe impl RefSafe for DosHeader {}
 #[derive(Clone, Debug)]
 pub struct PeHeader {
     pub signature: u32,
+    pub coff_header: COFFHeader,
+}
+unsafe impl RefSafe for PeHeader {}
+
+#[repr(packed)]
+#[derive(Clone, Debug)]
+pub struct COFFHeader {
     pub machine: Machine,
     pub number_of_sections: u16,
     pub time_date_stamp: u32,
@@ -213,7 +220,7 @@ pub struct PeHeader {
     pub size_of_optional_header: u16,
     pub characteristics: image_characteristics::Characteristics,
 }
-unsafe impl RefSafe for PeHeader {}
+unsafe impl RefSafe for COFFHeader {}
 
 #[repr(packed)]
 #[derive(Clone, Debug)]
