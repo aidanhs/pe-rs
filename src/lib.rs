@@ -100,8 +100,8 @@ pub enum ExportAddress<'data> {
 
 pub struct RelocationIter<'pe,'data: 'pe> {
 	pe: &'pe Pe<'data>,
-	next_rblock: RVA<RelocationBlock>,
-	end: RVA<()>,
+	next_rblock: FP<RelocationBlock>,
+	end: FP<()>,
 }
 
 impl<'data> Pe<'data> {
@@ -251,7 +251,8 @@ impl<'data> Pe<'data> {
 
 	pub fn get_relocations<'pe>(&'pe self) -> Result<RelocationIter<'pe,'data>> {
 		let ddir=try!(self.get_directory::<RelocationBlock>());
-		Ok(RelocationIter{pe:self,next_rblock:ddir.virtual_address,end:ddir.virtual_address+ddir.size})
+		let rblock_start = try!(self.resolve_rva(ddir.virtual_address));
+		Ok(RelocationIter{pe:self,next_rblock:rblock_start,end:rblock_start+ddir.size})
 	}
 }
 
@@ -297,9 +298,28 @@ impl<'pe,'data: 'pe> Exports<'pe, 'data> {
 
 impl<'pe,'data: 'pe> RelocationIter<'pe,'data> {
 	fn advance(&mut self) -> Result<(RVA<()>,&'data [Relocation])> {
-		let rblock=try!(self.pe.ref_at(self.next_rblock));
-		let relocs: &[Relocation]=try!(self.pe.ref_slice_at(self.next_rblock.offset(size_of::<RelocationBlock>() as u32),rblock.block_size/2));
-		self.next_rblock=self.next_rblock.offset(rblock.block_size);
+		let rblock=try!(self.pe.ref_at_fp(self.next_rblock));
+		if rblock.block_size < size_of::<RelocationBlock>() as u32 {
+			println!("{:?}", rblock);
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(8)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(16)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(32)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(40)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(48)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(56)));
+			println!("{:?}", self.pe.ref_at_fp::<RelocationBlock>(self.next_rblock.offset(64)));
+			return Err(Error::InvalidSize)
+		}
+		let relocs_fp = self.next_rblock.offset(size_of::<RelocationBlock>() as u32);
+		let relocs_len = rblock.block_size - size_of::<RelocationBlock>() as u32;
+		if relocs_len % size_of::<Relocation>() as u32 != 0 {
+			return Err(Error::InvalidSize)
+		}
+		let relocs: &[Relocation]=try!(self.pe.ref_slice_at_fp(relocs_fp, relocs_len / size_of::<Relocation>() as u32));
+		let align = rblock.block_size % 4;
+		self.next_rblock=self.next_rblock.offset(rblock.block_size + if align > 0 { println!("realign"); 4 - align } else { 0 });
+		//println!("n:{}", self.next_rblock.get());
+		println!("n(relocslen={},nrelocs={}):{},{}", relocs_len, relocs_len / size_of::<Relocation>() as u32, self.next_rblock.get(), self.next_rblock.get() % 4);
 		Ok((rblock.page_rva,relocs))
 	}
 }
@@ -308,8 +328,16 @@ impl<'pe,'data: 'pe> Iterator for RelocationIter<'pe,'data> {
 	type Item=Result<(RVA<()>,&'data [Relocation])>;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		if self.next_rblock.offset(size_of::<RelocationBlock>() as u32) as RVA<()><=self.end {
-			Some(self.advance())
+		println!("{},{} <= {}", self.next_rblock.get(), self.next_rblock.get() % 4, self.end.get());
+		if self.next_rblock.offset(size_of::<RelocationBlock>() as u32) as FP<()><=self.end {
+			let ret = self.advance();
+			if let Err(_) = ret {
+				println!("here");
+				// Artificially end the iterator
+				self.next_rblock = FP::new(0);
+				self.end = FP::new(0);
+			}
+			Some(ret)
 		} else if self.next_rblock.get()==self.end.get() {
 			None
 		} else {
